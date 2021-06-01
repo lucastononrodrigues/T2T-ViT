@@ -188,6 +188,7 @@ class Attention(nn.Module):
         x = self.proj_drop(x)
         
         return x
+    
     def disentangled_attention_bias(self, query_layer, key_layer, relative_pos, rel_embeddings, scale_factor):
             if relative_pos is None:
                 q = query_layer.size(-2)
@@ -265,8 +266,7 @@ class Block(nn.Module):
         super().__init__()
         self.LAI=LAI
         self.disentangled=disentangled
-        if self.disentangled:
-            print("Disentangled attention set")
+        print(f'Disentangled attention: {self.disentangled}')
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
