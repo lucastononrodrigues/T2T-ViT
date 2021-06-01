@@ -265,6 +265,8 @@ class Block(nn.Module):
         super().__init__()
         self.LAI=LAI
         self.disentangled=disentangled
+        if self.disentangled:
+            print("Disentangled attention set")
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
