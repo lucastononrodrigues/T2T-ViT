@@ -300,7 +300,7 @@ class VisionTransformer(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
-        #self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -331,7 +331,7 @@ class VisionTransformer(nn.Module):
         # Weight init
         assert weight_init in ('jax', 'jax_nlhb', 'nlhb', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in weight_init else 0.
-        trunc_normal_(self.rel_embeddings, std=.02)
+        trunc_normal_(self.pos_embed, std=.02)
         if self.dist_token is not None:
             trunc_normal_(self.dist_token, std=.02)
         if weight_init.startswith('jax'):
@@ -348,7 +348,7 @@ class VisionTransformer(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay(self):
-        return {'rel_embeddings', 'cls_token', 'dist_token'}
+        return {'pos_embed', 'cls_token', 'dist_token'}
 
     def get_classifier(self):
         if self.dist_token is None:
@@ -377,11 +377,14 @@ class VisionTransformer(nn.Module):
             rel_embeddings=self.get_rel_embedding()            
         
         if self.disentangled: #disentangled
-            x=self.pos_drop(x)
+            x=self.pos_drop(x+self.pos_embed)
             
             for module in self.blocks._modules.values():
                 x,_,_ = module(x,relative_pos,rel_embeddings)
             #Sequential for multiple inputs
+        else:
+            x = self.pos_drop(x + self.pos_embed)
+            x = self.blocks(x)
         
         x = self.norm(x)
         if self.dist_token is None:
@@ -557,9 +560,9 @@ def checkpoint_filter_fn(state_dict, model):
             # For old models that I trained prior to conv based patchification
             O, I, H, W = model.patch_embed.proj.weight.shape
             v = v.reshape(O, -1, H, W)
-        elif k == 'rel_embeddings' and v.shape != model.rel_embeddings.shape:
+        elif k == 'pos_embed' and v.shape != model.pos_embed.shape:
             # To resize pos embedding when using model at different size from pretrained weights
-            v = resize_pos_embed(v, model.rel_embeddings, getattr(model, 'num_tokens', 1),
+            v = resize_pos_embed(v, model.pos_embed, getattr(model, 'num_tokens', 1),
                                                 model.patch_embed.grid_size)
         out_dict[k] = v
     return out_dict
