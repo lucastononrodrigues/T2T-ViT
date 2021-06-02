@@ -5,18 +5,23 @@ from collections import OrderedDict
 from copy import deepcopy
 
 import numpy as np
-
+from itertools import repeat
+from torch._six import container_abcs
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.init import _calculate_fan_in_and_fan_out
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import build_model_with_cfg, load_pretrained
-from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
 
 _logger = logging.getLogger(__name__)
+
+
+
 
 
 def _cfg(url='', **kwargs):
@@ -35,24 +40,31 @@ default_cfgs = {
 }
 
 
-def build_relative_position(query_size, key_size, bucket_size=-1, max_position=-1):
-  q_ids = np.arange(0, query_size)
-  k_ids = np.arange(0, key_size)
-  rel_pos_ids = q_ids[:, None] - np.tile(k_ids, (q_ids.shape[0],1))
-  if bucket_size>0 and max_position > 0:
-    rel_pos_ids = make_log_bucket_position(rel_pos_ids, bucket_size, max_position)
-  rel_pos_ids = torch.tensor(rel_pos_ids, dtype=torch.long)
-  rel_pos_ids = rel_pos_ids[:query_size, :]
-  rel_pos_ids = rel_pos_ids.unsqueeze(0)
-  return rel_pos_ids
 
-def make_log_bucket_position(relative_pos, bucket_size, max_position):
-  sign = np.sign(relative_pos)
-  mid = bucket_size//2
-  abs_pos = np.where((relative_pos<mid) & (relative_pos > -mid), mid-1, np.abs(relative_pos))
-  log_pos = np.ceil(np.log(abs_pos/mid)/np.log((max_position-1)/mid) * (mid-1)) + mid
-  bucket_pos = np.where(abs_pos<=mid, relative_pos, log_pos*sign).astype(np.int)
-  return bucket_pos
+
+class PatchEmbed(nn.Module):
+    """ Image to Patch Embedding
+    """
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
+        super().__init__()
+        to_2tuple = _ntuple(2)
+        img_size = to_2tuple(img_size)
+        patch_size = to_2tuple(patch_size)
+        num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.num_patches = num_patches
+
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+
+    def forward(self, x):
+        B, C, H, W = x.shape #BxCxHxW
+        # FIXME look at relaxing size constraints
+        assert H == self.img_size[0] and W == self.img_size[1], \
+            f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        x = self.proj(x).flatten(2).transpose(1, 2) 
+        # B x embed_dim=Channels x H' x W' -> B x d x (H'*W') -> B x (H'*W') x d
+        return x
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.,
@@ -384,6 +396,80 @@ class VisionTransformer(nn.Module):
         return relative_pos
 
 
+
+
+
+class Mlp(nn.Module):
+    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
+    """
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+def variance_scaling_(tensor, scale=1.0, mode='fan_in', distribution='normal'):
+    fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
+    if mode == 'fan_in':
+        denom = fan_in
+    elif mode == 'fan_out':
+        denom = fan_out
+    elif mode == 'fan_avg':
+        denom = (fan_in + fan_out) / 2
+
+    variance = scale / denom
+
+    if distribution == "truncated_normal":
+        # constant is stddev of standard normal truncated to (-2, 2)
+        trunc_normal_(tensor, std=math.sqrt(variance) / .87962566103423978)
+    elif distribution == "normal":
+        tensor.normal_(std=math.sqrt(variance))
+    elif distribution == "uniform":
+        bound = math.sqrt(3 * variance)
+        tensor.uniform_(-bound, bound)
+    else:
+        raise ValueError(f"invalid distribution {distribution}")
+
+def build_relative_position(query_size, key_size, bucket_size=-1, max_position=-1):
+  q_ids = np.arange(0, query_size)
+  k_ids = np.arange(0, key_size)
+  rel_pos_ids = q_ids[:, None] - np.tile(k_ids, (q_ids.shape[0],1))
+  if bucket_size>0 and max_position > 0:
+    rel_pos_ids = make_log_bucket_position(rel_pos_ids, bucket_size, max_position)
+  rel_pos_ids = torch.tensor(rel_pos_ids, dtype=torch.long)
+  rel_pos_ids = rel_pos_ids[:query_size, :]
+  rel_pos_ids = rel_pos_ids.unsqueeze(0)
+  return rel_pos_ids
+
+def make_log_bucket_position(relative_pos, bucket_size, max_position):
+  sign = np.sign(relative_pos)
+  mid = bucket_size//2
+  abs_pos = np.where((relative_pos<mid) & (relative_pos > -mid), mid-1, np.abs(relative_pos))
+  log_pos = np.ceil(np.log(abs_pos/mid)/np.log((max_position-1)/mid) * (mid-1)) + mid
+  bucket_pos = np.where(abs_pos<=mid, relative_pos, log_pos*sign).astype(np.int)
+  return bucket_pos
+
+def _ntuple(n):
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+
+def lecun_normal_(tensor):
+    variance_scaling_(tensor, mode='fan_in', distribution='truncated_normal')
+
 def _init_vit_weights(m, n: str = '', head_bias: float = 0., jax_impl: bool = False):
     """ ViT weight initialization
     * When called without n, head_bias, jax_impl args it will behave exactly the same
@@ -459,36 +545,6 @@ def checkpoint_filter_fn(state_dict, model):
         out_dict[k] = v
     return out_dict
 
-
-def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kwargs):
-    if default_cfg is None:
-        default_cfg = deepcopy(default_cfgs[variant])
-    overlay_external_default_cfg(default_cfg, kwargs)
-    default_num_classes = default_cfg['num_classes']
-    default_img_size = default_cfg['input_size'][-2:]
-
-    num_classes = kwargs.pop('num_classes', default_num_classes)
-    img_size = kwargs.pop('img_size', default_img_size)
-    repr_size = kwargs.pop('representation_size', None)
-    if repr_size is not None and num_classes != default_num_classes:
-        # Remove representation layer if fine-tuning. This may not always be the desired action,
-        # but I feel better than doing nothing by default for fine-tuning. Perhaps a better interface?
-        _logger.warning("Removing representation layer for fine-tuning.")
-        repr_size = None
-
-    if kwargs.get('features_only', None):
-        raise RuntimeError('features_only not implemented for Vision Transformer models.')
-
-    model = build_model_with_cfg(
-        VisionTransformer, variant, pretrained,
-        default_cfg=default_cfg,
-        img_size=img_size,
-        num_classes=num_classes,
-        representation_size=repr_size,
-        pretrained_filter_fn=checkpoint_filter_fn,
-        **kwargs)
-
-    return model
 
 
 @register_model
