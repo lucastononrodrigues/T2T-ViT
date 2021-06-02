@@ -331,7 +331,7 @@ class VisionTransformer(nn.Module):
         # Weight init
         assert weight_init in ('jax', 'jax_nlhb', 'nlhb', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in weight_init else 0.
-        trunc_normal_(self.pos_embed, std=.02)
+        trunc_normal_(self.rel_embeddings, std=.02)
         if self.dist_token is not None:
             trunc_normal_(self.dist_token, std=.02)
         if weight_init.startswith('jax'):
@@ -348,7 +348,7 @@ class VisionTransformer(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay(self):
-        return {'pos_embed', 'cls_token', 'dist_token'}
+        return {'rel_embeddings', 'cls_token', 'dist_token'}
 
     def get_classifier(self):
         if self.dist_token is None:
@@ -557,9 +557,9 @@ def checkpoint_filter_fn(state_dict, model):
             # For old models that I trained prior to conv based patchification
             O, I, H, W = model.patch_embed.proj.weight.shape
             v = v.reshape(O, -1, H, W)
-        elif k == 'pos_embed' and v.shape != model.pos_embed.shape:
+        elif k == 'rel_embeddings' and v.shape != model.rel_embeddings.shape:
             # To resize pos embedding when using model at different size from pretrained weights
-            v = resize_pos_embed(v, model.pos_embed, getattr(model, 'num_tokens', 1),
+            v = resize_pos_embed(v, model.rel_embeddings, getattr(model, 'num_tokens', 1),
                                                 model.patch_embed.grid_size)
         out_dict[k] = v
     return out_dict
