@@ -19,6 +19,7 @@ from contextlib import suppress
 from datetime import datetime
 import models
 
+
 import torch
 import torch.nn as nn
 import torchvision.utils
@@ -316,6 +317,8 @@ def main():
         bn_eps=args.bn_eps,
         checkpoint_path=args.initial_checkpoint,
         img_size=args.img_size)
+    
+    #model = pass
 
     if args.local_rank == 0:
         _logger.info('Model %s created, param count: %d' %

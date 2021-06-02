@@ -253,13 +253,6 @@ class Block(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-    """ Vision Transformer
-    A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`
-        - https://arxiv.org/abs/2010.11929
-    Includes distillation token & head support for `DeiT: Data-efficient Image Transformers`
-        - https://arxiv.org/abs/2012.12877
-    """
-
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
