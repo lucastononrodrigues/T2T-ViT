@@ -169,14 +169,16 @@ class Attention(nn.Module):
                     .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
                 pos_key_layer = self.transpose_for_scores(self.key_proj(rel_embeddings), self.num_heads)\
                     .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-            else:
-                if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                    pos_key_layer = self.transpose_for_scores(self.pos_key_proj(rel_embeddings), self.num_heads)\
-                        .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-                        
-                if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                    pos_query_layer = self.transpose_for_scores(self.pos_query_proj(rel_embeddings), self.num_heads)\
-                        .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
+                    
+                    ## REMOVE UNUSED PARAMETERS
+            #else:
+            #    if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
+            #        pos_key_layer = self.transpose_for_scores(self.pos_key_proj(rel_embeddings), self.num_heads)\
+            #            .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
+            #            
+            #    if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
+            #        pos_query_layer = self.transpose_for_scores(self.pos_query_proj(rel_embeddings), self.num_heads)\
+            #            .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
             
             score = 0
             # content->position
