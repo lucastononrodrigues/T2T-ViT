@@ -7,7 +7,7 @@ from functools import partial
 from collections import OrderedDict
 from copy import deepcopy
 
-from helpers.ops import build_relative_position
+import numpy as np
 
 
 import torch
@@ -118,6 +118,24 @@ default_cfgs = {
     ),
 }
 
+
+def build_relative_position(query_size, key_size, bucket_size=-1, max_position=-1):
+  q_ids = np.arange(0, query_size)
+  k_ids = np.arange(0, key_size)
+  rel_pos_ids = q_ids[:, None] - np.tile(k_ids, (q_ids.shape[0],1))
+  if bucket_size>0 and max_position > 0:
+    rel_pos_ids = make_log_bucket_position(rel_pos_ids, bucket_size, max_position)
+  rel_pos_ids = torch.tensor(rel_pos_ids, dtype=torch.long)
+  rel_pos_ids = rel_pos_ids[:query_size, :]
+  rel_pos_ids = rel_pos_ids.unsqueeze(0)
+  return rel_pos_ids
+def make_log_bucket_position(relative_pos, bucket_size, max_position):
+  sign = np.sign(relative_pos)
+  mid = bucket_size//2
+  abs_pos = np.where((relative_pos<mid) & (relative_pos > -mid), mid-1, np.abs(relative_pos))
+  log_pos = np.ceil(np.log(abs_pos/mid)/np.log((max_position-1)/mid) * (mid-1)) + mid
+  bucket_pos = np.where(abs_pos<=mid, relative_pos, log_pos*sign).astype(np.int)
+  return bucket_pos
 
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.,
@@ -584,9 +602,6 @@ def vit_base_patch16_224(pretrained=False, **kwargs):
 
 @register_model
 def disvit_base_patch16_224(pretrained=False, **kwargs):
-    """ ViT-Base (ViT-B/16) from original paper (https://arxiv.org/abs/2010.11929).
-    ImageNet-1k weights fine-tuned from in21k @ 224x224, source https://github.com/google-research/vision_transformer.
-    """
     model_kwargs = dict(patch_size=16, embed_dim=768, depth=12, num_heads=12,disentangled=True **kwargs)
     model = _create_vision_transformer('disvit_base_patch16_224', pretrained=pretrained, **model_kwargs)
     return model
