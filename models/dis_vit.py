@@ -21,9 +21,6 @@ from timm.models.registry import register_model
 _logger = logging.getLogger(__name__)
 
 
-
-
-
 def _cfg(url='', **kwargs):
     return {
         'url': url,
@@ -76,35 +73,44 @@ class Attention(nn.Module):
         self.scale = qk_scale or head_dim ** -0.5
         
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        
+        self._all_head_size= head_dim * self.num_heads
+        
+        self.query_proj = nn.Linear(dim, self._all_head_size, bias=True)
+        self.key_proj = nn.Linear(dim, self._all_head_size, bias=True)
+        self.value_proj = nn.Linear(dim, self._all_head_size, bias=True)
+        
+        
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+        self.pos_drop = nn.Dropout(attn_drop)
+        self.max_relative_positions=dim
+        self.pos_ebd_size=self.max_relative_positions
         
-        self.pos_att_type=None
-        self._all_head_size= head_dim * self.num_heads
-        if self.relative_attention:
-            self.position_buckets = position_buckets
-            self.max_relative_positions = max_relative_positions
-            if self.max_relative_positions <1:
-                self.max_relative_positions = max_position_embeddings
-            self.pos_ebd_size = self.max_relative_positions
-            if self.position_buckets>0:
-                self.pos_ebd_size = self.position_buckets
-                # For backward compitable
+        self.share_att_key=True
+        self.relative_attention=relative_attention
 
-            self.pos_dropout = nn.Dropout(attn_drop)
+        self.pos_att_type = [x.strip() for x in pos_att_type.lower().split('|')] # c2p|p2c
+        if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
+            self.pos_key_proj = nn.Linear(dim, self._all_head_size, bias=True)
+        if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
+            self.pos_query_proj = nn.Linear(dim, self._all_head_size)
 
-            if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                self.pos_key_proj = nn.Linear(dim, self.all_head_size, bias=True)
-            if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                self.pos_query_proj = nn.Linear(dim, self.all_head_size)
-        
+
+    
+
+  
     def forward(self, x,relative_pos=None,rel_embeddings=None):
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+        #qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        #BN3hd->3BhNd
+        q= self.query_proj(x).reshape(B,N,self.num_heads,C//self.num_heads).permute(0,2,1,3)
+        k= self.key_proj(x).reshape(B,N,self.num_heads,C//self.num_heads).permute(0,2,1,3)
+        v= self.value_proj(x).reshape(B,N,self.num_heads,C//self.num_heads).permute(0,2,1,3)
+        #q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
         #B x h x N x C//h
-        q,k,v = q.squeeze(1),k.squeeze(1),v.squeeze(1)
+        q,k,v = q.reshape(q.size(0)*q.size(1),N,C//self.num_heads),k.reshape(k.size(0)*k.size(1),N,C//self.num_heads),v.reshape(v.size(0)*v.size(1),N,C//self.num_heads)
         # (B*h) x N x C//h
         scale_factor = 1
         if 'c2p' in self.pos_att_type:
@@ -115,11 +121,11 @@ class Attention(nn.Module):
             scale_factor += 1
         self.scale = math.sqrt(q.size(-1)*scale_factor)
         
-        
         attn = (q @ k.transpose(-2, -1)) / self.scale
         
         if self.relative_attention:
-            rel_embeddings=self.pos_dropout(rel_embeddings)
+            rel_embeddings=self.pos_drop(rel_embeddings)
+            #print(q.shape,k.shape,relative_pos.shape,rel_embeddings.shape)
             rel_att = self.disentangled_attention_bias(q, k, relative_pos, rel_embeddings, scale_factor)
         
         if rel_att is not None:
@@ -127,15 +133,19 @@ class Attention(nn.Module):
         
         attn = attn.view(-1,self.num_heads,attn.size(-2),attn.size(-1))
         
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        attn_probs = attn.softmax(dim=-1)
+        attn_probs = self.attn_drop(attn_probs)
+        x = (attn_probs.view(-1,attn_probs.size(-2),attn_probs.size(-1)) @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         
         return x
     
+    def transpose_for_scores(self, x, attention_heads):
+        new_x_shape = x.size()[:-1] + (attention_heads, -1)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3).contiguous().view(-1, x.size(1), x.size(-1))
+
     def disentangled_attention_bias(self, query_layer, key_layer, relative_pos, rel_embeddings, scale_factor):
             if relative_pos is None:
                 q = query_layer.size(-2)
@@ -150,21 +160,23 @@ class Attention(nn.Module):
             #print(relative_pos)
             att_span = self.pos_ebd_size
             relative_pos = relative_pos.long().to(query_layer.device)
+            #print(relative_pos.max(),relative_pos.min())
+            #print(att_span)
     
             rel_embeddings = rel_embeddings[self.pos_ebd_size - att_span:self.pos_ebd_size + att_span, :].unsqueeze(0) #.repeat(query_layer.size(0)//self.num_attention_heads, 1, 1)
             if self.share_att_key:
-                pos_query_layer = self.transpose_for_scores(self.query_proj(rel_embeddings), self.num_attention_heads)\
-                    .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-                pos_key_layer = self.transpose_for_scores(self.key_proj(rel_embeddings), self.num_attention_heads)\
-                    .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
+                pos_query_layer = self.transpose_for_scores(self.query_proj(rel_embeddings), self.num_heads)\
+                    .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
+                pos_key_layer = self.transpose_for_scores(self.key_proj(rel_embeddings), self.num_heads)\
+                    .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
             else:
                 if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                    pos_key_layer = self.transpose_for_scores(self.pos_key_proj(rel_embeddings), self.num_attention_heads)\
-                        .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
+                    pos_key_layer = self.transpose_for_scores(self.pos_key_proj(rel_embeddings), self.num_heads)\
+                        .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
                         
                 if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                    pos_query_layer = self.transpose_for_scores(self.pos_query_proj(rel_embeddings), self.num_attention_heads)\
-                        .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
+                    pos_query_layer = self.transpose_for_scores(self.pos_query_proj(rel_embeddings), self.num_heads)\
+                        .repeat(query_layer.size(0)//self.num_heads, 1, 1) #.split(self.all_head_size, dim=-1)
             
             score = 0
             # content->position
@@ -172,7 +184,11 @@ class Attention(nn.Module):
                 scale = math.sqrt(pos_key_layer.size(-1)*scale_factor)
                 c2p_att = torch.bmm(query_layer, pos_key_layer.transpose(-1, -2))
                 c2p_pos = torch.clamp(relative_pos + att_span, 0, att_span*2-1)
-                c2p_att = torch.gather(c2p_att, dim=-1, index=c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)]))
+                #print(c2p_pos,torch.max(c2p_pos),torch.min(c2p_pos))
+                idx=c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)])
+                #print(relative_pos,att_span)
+                #print(c2p_att.shape,idx.shape,torch.max(idx),torch.min(idx))
+                c2p_att = torch.gather(c2p_att, dim=-1, index=idx)
                 score += c2p_att/scale
                 
             # position->content
@@ -213,23 +229,26 @@ class Block(nn.Module):
         super().__init__()
         self.LAI=LAI
         self.disentangled=disentangled
-        print(f'Disentangled attention: {self.disentangled}')
+        #print(f'Disentangled attention: {self.disentangled}')
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
+            relative_attention=disentangled)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-    def forward(self, x, relative_pos=None, rel_embeddings=None):
+    def forward(self, x, relative_pos=None,rel_embeddings=None):
         if self.disentangled:
             x = x + self.drop_path(self.attn(self.norm1(x),relative_pos=relative_pos,rel_embeddings=rel_embeddings))
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            return x,relative_pos,rel_embeddings
         else:
             x = x + self.drop_path(self.attn(self.norm1(x)))
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            return x
 
 
 
@@ -268,7 +287,12 @@ class VisionTransformer(nn.Module):
             weight_init: (str): weight init scheme
         """
         super().__init__()
-        self.disentangled= disentangled
+        self.disentangled= self.relative_attention=disentangled
+        self.position_buckets=-1
+        self.max_relative_positions=embed_dim
+        self.pos_ebd_size=self.max_relative_positions*2
+        self.rel_embeddings = nn.Embedding(self.pos_ebd_size, embed_dim)
+        
         print(f'Disentangled attention: {disentangled}')
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -290,7 +314,8 @@ class VisionTransformer(nn.Module):
         self.blocks = nn.Sequential(*[
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer)
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,
+                disentangled=self.disentangled)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
 
@@ -348,18 +373,22 @@ class VisionTransformer(nn.Module):
         x = self.patch_embed(x)
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         
-        if self.disentangled:
-            relative_pos=self.get_rel_pos(x)
-            rel_embeddings=self.get_rel_embedding()
         
         if self.dist_token is None:
             x = torch.cat((cls_token, x), dim=1)
         else:
             x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
-            
+    
+        if self.disentangled:
+            relative_pos=self.get_rel_pos(x)
+            rel_embeddings=self.get_rel_embedding()            
+        
         if self.disentangled: #disentangled
             x=self.pos_drop(x)
-            x = self.blocks(x,relative_pos=relative_pos,rel_embeddings=rel_embeddings)
+            
+            for module in self.blocks._modules.values():
+                x,_,_ = module(x,relative_pos,rel_embeddings)
+            #Sequential for multiple inputs
         else:
             x = self.pos_drop(x + self.pos_embed)
             x = self.blocks(x)
@@ -549,7 +578,7 @@ def checkpoint_filter_fn(state_dict, model):
 
 @register_model
 def disvit_base_patch16_224(pretrained=False, **kwargs):
-    model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12,disentangled=True **kwargs)
+    model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12,disentangled=True,**kwargs)
     model.default_cfg = default_cfgs['disvit_base_patch16_224']
     if pretrained:
         load_pretrained(
