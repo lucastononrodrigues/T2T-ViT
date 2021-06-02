@@ -493,9 +493,8 @@ def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kw
 
 @register_model
 def disvit_base_patch16_224(pretrained=False, **kwargs):
-    
     model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12,disentangled=True **kwargs)
-    model.default_cfg = default_cfgs['T2t_vit_7']
+    model.default_cfg = default_cfgs['disvit_base_patch16_224']
     if pretrained:
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
