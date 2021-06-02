@@ -40,9 +40,7 @@ default_cfgs = {
     ),
 
     # patch models (weights ported from official Google JAX impl)
-    'vit_base_patch16_224': _cfg(
-        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-vitjx/jx_vit_base_p16_224-80ecf9dd.pth',
-        mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
+    'vit_base_patch16_224': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
     ),
     'vit_base_patch32_224': _cfg(
         url='',  # no official model weights for this combo, only for in21k
@@ -322,6 +320,7 @@ class VisionTransformer(nn.Module):
         """
         super().__init__()
         self.disentangled= disentangled
+        print(f'Disentangled attention: {disentangled}')
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.LayerNorm= nn.LayerNorm(embed_dim)
