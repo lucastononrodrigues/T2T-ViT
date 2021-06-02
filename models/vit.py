@@ -42,6 +42,8 @@ default_cfgs = {
     # patch models (weights ported from official Google JAX impl)
     'vit_base_patch16_224': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
     ),
+    'disvit_base_patch16_224': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+                                    
     'vit_base_patch32_224': _cfg(
         url='',  # no official model weights for this combo, only for in21k
         mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
@@ -579,6 +581,16 @@ def vit_base_patch16_224(pretrained=False, **kwargs):
     model_kwargs = dict(patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
     model = _create_vision_transformer('vit_base_patch16_224', pretrained=pretrained, **model_kwargs)
     return model
+
+@register_model
+def disvit_base_patch16_224(pretrained=False, **kwargs):
+    """ ViT-Base (ViT-B/16) from original paper (https://arxiv.org/abs/2010.11929).
+    ImageNet-1k weights fine-tuned from in21k @ 224x224, source https://github.com/google-research/vision_transformer.
+    """
+    model_kwargs = dict(patch_size=16, embed_dim=768, depth=12, num_heads=12,disentangled=True **kwargs)
+    model = _create_vision_transformer('disvit_base_patch16_224', pretrained=pretrained, **model_kwargs)
+    return model
+
 
 
 @register_model
