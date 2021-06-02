@@ -563,10 +563,6 @@ def main():
                 lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                 amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
             
-            for name, param in model.named_parameters():
-                if param.grad is None:
-                    print(name)
-            
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
                     _logger.info("Distributing BatchNorm running means and vars")
@@ -649,6 +645,10 @@ def train_epoch(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
             optimizer.step()
 
+        for name, param in model.named_parameters():
+                if param.grad is None:
+                    print(name)
+            
         torch.cuda.synchronize()
         if model_ema is not None:
             model_ema.update(model)
