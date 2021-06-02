@@ -72,7 +72,7 @@ class Attention(nn.Module):
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
         
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        #self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         
         self._all_head_size= head_dim * self.num_heads
         
@@ -300,7 +300,7 @@ class VisionTransformer(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
+        #self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -382,9 +382,6 @@ class VisionTransformer(nn.Module):
             for module in self.blocks._modules.values():
                 x,_,_ = module(x,relative_pos,rel_embeddings)
             #Sequential for multiple inputs
-        else:
-            x = self.pos_drop(x + self.pos_embed)
-            x = self.blocks(x)
         
         x = self.norm(x)
         if self.dist_token is None:
