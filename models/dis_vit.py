@@ -34,6 +34,7 @@ def _cfg(url='', **kwargs):
 
 default_cfgs = {
     'disvit_base_patch16_224': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_smalltest': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
 }
 
 
@@ -570,6 +571,17 @@ def checkpoint_filter_fn(state_dict, model):
     return out_dict
 
 
+
+
+@register_model
+def disvit_smalltest(pretrained=False, **kwargs):
+    model = VisionTransformer(patch_size=16, embed_dim=384, depth=4, num_heads=6,disentangled=True,**kwargs)
+    model.default_cfg = default_cfgs['disvit_smalltest']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+    
 
 @register_model
 def disvit_base_patch16_224(pretrained=False, **kwargs):
