@@ -10,7 +10,7 @@ from datetime import datetime
 import models
 
 #Wandb logging
-import wandb
+#import wandb
 
 #Torch
 import torch
@@ -553,9 +553,9 @@ def main():
             f.write(args_text)
     
     
-    run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
-    wandb.config.update(args)
-    wandb.watch(model)
+    #run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
+    #wandb.config.update(args)
+    #wandb.watch(model)
     size_eval=len(loader_eval)
     size_train=len(loader_train)
     try:  # train the model
@@ -598,11 +598,12 @@ def main():
                 # save proper checkpoint with eval metric
                 save_metric = eval_metrics[eval_metric]
                 best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
-                
-        run.log({"train_loss":epoch_loss.item(),
-                   "val_loss":epoch_val_loss.item(),
-                   "val_accuracy":epoch_val_accuracy.item(),
-                   "val_5_accuracy": epoch_val_5_accuracy.item()})    
+        
+        
+        #run.log({"train_loss":epoch_loss.item(),
+                   #"val_loss":epoch_val_loss.item(),
+                   #"val_accuracy":epoch_val_accuracy.item(),
+                   #"val_5_accuracy": epoch_val_5_accuracy.item()})    
 
     except KeyboardInterrupt:
         pass
