@@ -121,172 +121,40 @@ default_cfgs = {
 }
 
 
-def build_relative_position(query_size, key_size, bucket_size=-1, max_position=-1):
-  q_ids = np.arange(0, query_size)
-  k_ids = np.arange(0, key_size)
-  rel_pos_ids = q_ids[:, None] - np.tile(k_ids, (q_ids.shape[0],1))
-  if bucket_size>0 and max_position > 0:
-    rel_pos_ids = make_log_bucket_position(rel_pos_ids, bucket_size, max_position)
-  rel_pos_ids = torch.tensor(rel_pos_ids, dtype=torch.long)
-  rel_pos_ids = rel_pos_ids[:query_size, :]
-  rel_pos_ids = rel_pos_ids.unsqueeze(0)
-  return rel_pos_ids
-def make_log_bucket_position(relative_pos, bucket_size, max_position):
-  sign = np.sign(relative_pos)
-  mid = bucket_size//2
-  abs_pos = np.where((relative_pos<mid) & (relative_pos > -mid), mid-1, np.abs(relative_pos))
-  log_pos = np.ceil(np.log(abs_pos/mid)/np.log((max_position-1)/mid) * (mid-1)) + mid
-  bucket_pos = np.where(abs_pos<=mid, relative_pos, log_pos*sign).astype(np.int)
-  return bucket_pos
+
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.,
-                 relative_attention=True,pos_att_type='c2p|p2c',position_buckets=-1,max_relative_positions=-1,
-                 max_position_embeddings=512):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
-        
+
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
-        
-        self.pos_att_type=None
-        self._all_head_size= head_dim * self.num_heads
-        if self.relative_attention:
-            self.position_buckets = position_buckets
-            self.max_relative_positions = max_relative_positions
-            if self.max_relative_positions <1:
-                self.max_relative_positions = max_position_embeddings
-            self.pos_ebd_size = self.max_relative_positions
-            if self.position_buckets>0:
-                self.pos_ebd_size = self.position_buckets
-                # For backward compitable
 
-            self.pos_dropout = nn.Dropout(attn_drop)
-
-            if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                self.pos_key_proj = nn.Linear(dim, self.all_head_size, bias=True)
-            if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                self.pos_query_proj = nn.Linear(dim, self.all_head_size)
-        
-    def forward(self, x,relative_pos=None,rel_embeddings=None):
+    def forward(self, x):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
-        #B x h x N x C//h
-        q,k,v = q.squeeze(1),k.squeeze(1),v.squeeze(1)
-        # (B*h) x N x C//h
-        scale_factor = 1
-        if 'c2p' in self.pos_att_type:
-            scale_factor += 1
-        if 'p2c' in self.pos_att_type:
-            scale_factor += 1
-        if 'p2p' in self.pos_att_type:
-            scale_factor += 1
-        self.scale = math.sqrt(q.size(-1)*scale_factor)
-        
-        
-        attn = (q @ k.transpose(-2, -1)) / self.scale
-        
-        if self.relative_attention:
-            rel_embeddings=self.pos_dropout(rel_embeddings)
-            rel_att = self.disentangled_attention_bias(q, k, relative_pos, rel_embeddings, scale_factor)
-        
-        if rel_att is not None:
-            attn = (attn + rel_att)
-        
-        attn = attn.view(-1,self.num_heads,attn.size(-2),attn.size(-1))
-        
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        
         return x
-    
-    def disentangled_attention_bias(self, query_layer, key_layer, relative_pos, rel_embeddings, scale_factor):
-            if relative_pos is None:
-                q = query_layer.size(-2)
-                relative_pos = build_relative_position(q, key_layer.size(-2), bucket_size = self.position_buckets, max_position = self.max_relative_positions)
-            if relative_pos.dim()==2:
-                relative_pos = relative_pos.unsqueeze(0).unsqueeze(0)
-            elif relative_pos.dim()==3:
-                relative_pos = relative_pos.unsqueeze(1)
-            # bxhxqxk
-            elif relative_pos.dim()!=4:
-                raise ValueError(f'Relative postion ids must be of dim 2 or 3 or 4. {relative_pos.dim()}')
-            #print(relative_pos)
-            att_span = self.pos_ebd_size
-            relative_pos = relative_pos.long().to(query_layer.device)
-    
-            rel_embeddings = rel_embeddings[self.pos_ebd_size - att_span:self.pos_ebd_size + att_span, :].unsqueeze(0) #.repeat(query_layer.size(0)//self.num_attention_heads, 1, 1)
-            if self.share_att_key:
-                pos_query_layer = self.transpose_for_scores(self.query_proj(rel_embeddings), self.num_attention_heads)\
-                    .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-                pos_key_layer = self.transpose_for_scores(self.key_proj(rel_embeddings), self.num_attention_heads)\
-                    .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-            else:
-                if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                    pos_key_layer = self.transpose_for_scores(self.pos_key_proj(rel_embeddings), self.num_attention_heads)\
-                        .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-                        
-                if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                    pos_query_layer = self.transpose_for_scores(self.pos_query_proj(rel_embeddings), self.num_attention_heads)\
-                        .repeat(query_layer.size(0)//self.num_attention_heads, 1, 1) #.split(self.all_head_size, dim=-1)
-            
-            score = 0
-            # content->position
-            if 'c2p' in self.pos_att_type:
-                scale = math.sqrt(pos_key_layer.size(-1)*scale_factor)
-                c2p_att = torch.bmm(query_layer, pos_key_layer.transpose(-1, -2))
-                c2p_pos = torch.clamp(relative_pos + att_span, 0, att_span*2-1)
-                c2p_att = torch.gather(c2p_att, dim=-1, index=c2p_pos.squeeze(0).expand([query_layer.size(0), query_layer.size(1), relative_pos.size(-1)]))
-                score += c2p_att/scale
-                
-            # position->content
-            if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-                scale = math.sqrt(pos_query_layer.size(-1)*scale_factor)
-                if key_layer.size(-2) != query_layer.size(-2):
-                    r_pos = build_relative_position(key_layer.size(-2), key_layer.size(-2), bucket_size = self.position_buckets, max_position = self.max_relative_positions).to(query_layer.device)
-                    r_pos = r_pos.unsqueeze(0)
-                else:
-                    r_pos = relative_pos
-    
-                p2c_pos = torch.clamp(-r_pos + att_span, 0, att_span*2-1)
-                if query_layer.size(-2) != key_layer.size(-2):
-                    pos_index = relative_pos[:, :, :, 0].unsqueeze(-1)
-    
-            if 'p2c' in self.pos_att_type:
-                p2c_att = torch.bmm(key_layer, pos_query_layer.transpose(-1, -2))
-                p2c_att = torch.gather(p2c_att, dim=-1, index=p2c_pos.squeeze(0).expand([query_layer.size(0), key_layer.size(-2), key_layer.size(-2)])).transpose(-1,-2)
-                if query_layer.size(-2) != key_layer.size(-2):
-                    p2c_att = torch.gather(p2c_att, dim=-2, index=pos_index.expand(p2c_att.size()[:2] + (pos_index.size(-2), key_layer.size(-2))))
-                score += p2c_att/scale
-    
-            # position->position
-            if 'p2p' in self.pos_att_type:
-                pos_query = pos_query_layer[:,:,att_span:,:]
-                p2p_att = torch.matmul(pos_query, pos_key_layer.transpose(-1, -2))
-                p2p_att = p2p_att.expand(query_layer.size()[:2] + p2p_att.size()[2:])
-                if query_layer.size(-2) != key_layer.size(-2):
-                    p2p_att = torch.gather(p2p_att, dim=-2, index=pos_index.expand(query_layer.size()[:2] + (pos_index.size(-2), p2p_att.size(-1))))
-                p2p_att = torch.gather(p2p_att, dim=-1, index=c2p_pos.expand([query_layer.size(0), query_layer.size(1), query_layer.size(2), relative_pos.size(-1)]))
-                score += p2p_att
-    
-            return score
+
 
 class Block(nn.Module):
+
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, LAI=False,disentangled=True):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.LAI=LAI
-        self.disentangled=disentangled
-        print(f'Disentangled attention: {self.disentangled}')
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
@@ -296,33 +164,9 @@ class Block(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-    def forward(self, x, relative_pos=None, rel_embeddings=None):
-        if self.disentangled:
-            x = x + self.drop_path(self.attn(self.norm1(x),relative_pos=relative_pos,rel_embeddings=rel_embeddings))
-        else:
-            x = x + self.drop_path(self.attn(self.norm1(x)))
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
-
-
-class Mlp(nn.Module):
-    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
-    """
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features)
-        self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop = nn.Dropout(drop)
-
     def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        x = self.drop(x)
+        x = x + self.drop_path(self.attn(self.norm1(x)))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
 class PatchEmbed(nn.Module):
@@ -349,36 +193,6 @@ class PatchEmbed(nn.Module):
         # B x embed_dim=Channels x H' x W' -> B x d x (H'*W') -> B x (H'*W') x d
         return x
     
-def _ntuple(n):
-    def parse(x):
-        if isinstance(x, container_abcs.Iterable):
-            return x
-        return tuple(repeat(x, n))
-    return parse
-def variance_scaling_(tensor, scale=1.0, mode='fan_in', distribution='normal'):
-    fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
-    if mode == 'fan_in':
-        denom = fan_in
-    elif mode == 'fan_out':
-        denom = fan_out
-    elif mode == 'fan_avg':
-        denom = (fan_in + fan_out) / 2
-
-    variance = scale / denom
-
-    if distribution == "truncated_normal":
-        # constant is stddev of standard normal truncated to (-2, 2)
-        trunc_normal_(tensor, std=math.sqrt(variance) / .87962566103423978)
-    elif distribution == "normal":
-        tensor.normal_(std=math.sqrt(variance))
-    elif distribution == "uniform":
-        bound = math.sqrt(3 * variance)
-        tensor.uniform_(-bound, bound)
-    else:
-        raise ValueError(f"invalid distribution {distribution}")
-def lecun_normal_(tensor):
-    variance_scaling_(tensor, mode='fan_in', distribution='truncated_normal')
-
 class VisionTransformer(nn.Module):
     """ Vision Transformer
     A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`
@@ -390,8 +204,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
-                 act_layer=None, weight_init='',
-                 LAI=False,disentangled=True):
+                 act_layer=None, weight_init=''):
         """
         Args:
             img_size (int, tuple): input image size
@@ -414,11 +227,8 @@ class VisionTransformer(nn.Module):
             weight_init: (str): weight init scheme
         """
         super().__init__()
-        self.disentangled= disentangled
-        print(f'Disentangled attention: {disentangled}')
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
-        self.LayerNorm= nn.LayerNorm(embed_dim)
         self.num_tokens = 2 if distilled else 1
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
         act_layer = act_layer or nn.GELU
@@ -493,23 +303,12 @@ class VisionTransformer(nn.Module):
     def forward_features(self, x):
         x = self.patch_embed(x)
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        
-        if self.disentangled:
-            relative_pos=self.get_rel_pos(x)
-            rel_embeddings=self.get_rel_embedding()
-        
         if self.dist_token is None:
             x = torch.cat((cls_token, x), dim=1)
         else:
             x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
-            
-        if self.disentangled: #disentangled
-            x=self.pos_drop(x)
-            x = self.blocks(x,relative_pos=relative_pos,rel_embeddings=rel_embeddings)
-        else:
-            x = self.pos_drop(x + self.pos_embed)
-            x = self.blocks(x)
-        
+        x = self.pos_drop(x + self.pos_embed)
+        x = self.blocks(x)
         x = self.norm(x)
         if self.dist_token is None:
             return self.pre_logits(x[:, 0])
@@ -528,18 +327,6 @@ class VisionTransformer(nn.Module):
         else:
             x = self.head(x)
         return x
-    
-    def get_rel_embedding(self):
-        rel_embeddings = self.rel_embeddings.weight if self.relative_attention else None
-        if rel_embeddings is not None:
-          rel_embeddings = self.LayerNorm(rel_embeddings)
-        return rel_embeddings        
-    
-    def get_rel_pos(self, hidden_states, query_states=None, relative_pos=None):
-        if self.relative_attention and relative_pos is None:
-          q = query_states.size(-2) if query_states is not None else hidden_states.size(-2)
-          relative_pos = build_relative_position(q, hidden_states.size(-2), bucket_size = self.position_buckets, max_position=self.max_relative_positions)
-        return relative_pos
 
 
 def _init_vit_weights(m, n: str = '', head_bias: float = 0., jax_impl: bool = False):
@@ -616,6 +403,59 @@ def checkpoint_filter_fn(state_dict, model):
                                                 model.patch_embed.grid_size)
         out_dict[k] = v
     return out_dict
+
+
+class Mlp(nn.Module):
+    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
+    """
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+
+    
+def _ntuple(n):
+    def parse(x):
+        if isinstance(x, container_abcs.Iterable):
+            return x
+        return tuple(repeat(x, n))
+    return parse
+def variance_scaling_(tensor, scale=1.0, mode='fan_in', distribution='normal'):
+    fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
+    if mode == 'fan_in':
+        denom = fan_in
+    elif mode == 'fan_out':
+        denom = fan_out
+    elif mode == 'fan_avg':
+        denom = (fan_in + fan_out) / 2
+
+    variance = scale / denom
+
+    if distribution == "truncated_normal":
+        # constant is stddev of standard normal truncated to (-2, 2)
+        trunc_normal_(tensor, std=math.sqrt(variance) / .87962566103423978)
+    elif distribution == "normal":
+        tensor.normal_(std=math.sqrt(variance))
+    elif distribution == "uniform":
+        bound = math.sqrt(3 * variance)
+        tensor.uniform_(-bound, bound)
+    else:
+        raise ValueError(f"invalid distribution {distribution}")
+def lecun_normal_(tensor):
+    variance_scaling_(tensor, mode='fan_in', distribution='truncated_normal')
 
 
 
