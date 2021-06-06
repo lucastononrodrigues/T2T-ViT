@@ -33,6 +33,9 @@ from timm.optim import create_optimizer
 from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
 
+import wandb
+
+
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
 
@@ -236,6 +239,12 @@ parser.add_argument('--tta', type=int, default=0, metavar='N',
 parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
+
+
+'''Logging/wandb'''
+parser.add_argument('--wandb_project', default = 'Deformable ViT' ,type=str)
+parser.add_argument('--wandb_entity', default = 'ltononro' ,type=str)
+parser.add_argument('--wandb_group',default = 'DisViT', type=str)
 
 try:
     from apex import amp
@@ -552,7 +561,9 @@ def main():
             checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing)
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
-
+    run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
+    wandb.config.update(args)
+    wandb.watch(model)
     try:  # train the model
         for epoch in range(start_epoch, num_epochs):
             if args.distributed:
@@ -569,7 +580,13 @@ def main():
                 distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
             eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-
+            
+            
+            run.log({'train_loss':train_metrics['loss'],
+                     'eval_loss': eval_metrics['loss'],
+                     'acc@1': eval_metrics['top1'],
+                     'acc@5': eval_metrics['top5'],
+                })
             if model_ema is not None and not args.model_ema_force_cpu:
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                     distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
