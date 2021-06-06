@@ -36,6 +36,7 @@ def _cfg(url='', **kwargs):
 
 default_cfgs = {
     # patch models (my experiments)
+    'vit_smalltest': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     'vit_small_patch16_224': _cfg(
         url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/vit_small_p16_224-15ec54c9.pth',
     ),
@@ -622,7 +623,7 @@ def checkpoint_filter_fn(state_dict, model):
 @register_model
 def vit_smalltest(pretrained=False,**kwargs):
     model = VisionTransformer(patch_size=16, embed_dim=384, depth=4, num_heads=6,**kwargs)
-    model.default_cfg = default_cfgs['disvit_smalltest']
+    model.default_cfg = default_cfgs['vit_smalltest']
     if pretrained:
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
