@@ -1,4 +1,14 @@
-#Utilities
+# Copyright (c) [2012]-[2021] Shanghai Yitu Technology Co., Ltd.
+#
+# This source code is licensed under the Clear BSD License
+# LICENSE file in the root directory of this file
+# All rights reserved.
+"""
+T2T-ViT training and evaluating script
+This script is modified from pytorch-image-models by Ross Wightman (https://github.com/rwightman/pytorch-image-models/)
+It was started from an early version of the PyTorch ImageNet example
+(https://github.com/pytorch/examples/tree/master/imagenet)
+"""
 import argparse
 import time
 import yaml
@@ -9,16 +19,12 @@ from contextlib import suppress
 from datetime import datetime
 import models
 
-#Wandb logging
-import wandb
 
-#Torch
 import torch
 import torch.nn as nn
 import torchvision.utils
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
-#Timm torch for image models
 from timm.data import Dataset, create_loader, resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import load_checkpoint, create_model, resume_checkpoint, convert_splitbn_model
 from timm.utils import *
@@ -230,11 +236,6 @@ parser.add_argument('--tta', type=int, default=0, metavar='N',
 parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
-
-'''Logging/wandb'''
-parser.add_argument('--wandb_project', default = 'Deformable ViT' ,type=str)
-parser.add_argument('--wandb_entity', default = 'ltononro' ,type=str)
-parser.add_argument('--wandb_group',default = 'ViT', type=str)
 
 try:
     from apex import amp
@@ -551,13 +552,7 @@ def main():
             checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing)
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
-    
-    
-    run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
-    wandb.config.update(args)
-    wandb.watch(model)
-    size_eval=len(loader_eval)
-    size_train=len(loader_train)
+
     try:  # train the model
         for epoch in range(start_epoch, num_epochs):
             if args.distributed:
@@ -567,7 +562,6 @@ def main():
                 epoch, model, loader_train, optimizer, train_loss_fn, args,
                 lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                 amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
-            epoch_loss+=train_metrics['loss']/size_train
             
             if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                 if args.local_rank == 0:
@@ -575,10 +569,7 @@ def main():
                 distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
             eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
-            acc1_val,acc5_val=eval_metrics['top1'],eval_metrics['top5']
-            epoch_val_accuracy+=acc1_val/size_eval
-            epoch_val_5_accuracy+=acc5_val/size_eval
-            epoch_val_loss=eval_metrics['loss']/size_eval
+
             if model_ema is not None and not args.model_ema_force_cpu:
                 if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
                     distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
@@ -598,11 +589,6 @@ def main():
                 # save proper checkpoint with eval metric
                 save_metric = eval_metrics[eval_metric]
                 best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
-                
-        run.log({"train_loss":epoch_loss.item(),
-                   "val_loss":epoch_val_loss.item(),
-                   "val_accuracy":epoch_val_accuracy.item(),
-                   "val_5_accuracy": epoch_val_5_accuracy.item()})    
 
     except KeyboardInterrupt:
         pass
@@ -645,13 +631,6 @@ def train_epoch(
         with amp_autocast():
             output = model(input)
             loss = loss_fn(output, target)
-            acc1,acc5=accuracy(output,target,topk=(1,5))
-            if args.distributed:
-                reduced_loss = reduce_tensor(loss.data, args.world_size)
-                acc1 = reduce_tensor(acc1, args.world_size)
-                acc5 = reduce_tensor(acc5, args.world_size)
-            else:
-                reduced_loss = loss.data
 
         if not args.distributed:
             losses_m.update(loss.item(), input.size(0))
@@ -688,8 +667,6 @@ def train_epoch(
                 _logger.info(
                     'Train: {} [{:>4d}/{} ({:>3.0f}%)]  '
                     'Loss: {loss.val:>9.6f} ({loss.avg:>6.4f})  '
-                    'Acc@1: {top1.val:>7.4f} ({top1.avg:>7.4f})  '
-                    'Acc@5: {top5.val:>7.4f} ({top5.avg:>7.4f})'
                     'Time: {batch_time.val:.3f}s, {rate:>7.2f}/s  '
                     '({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
                     'LR: {lr:.3e}  '
@@ -702,8 +679,7 @@ def train_epoch(
                         rate=input.size(0) * args.world_size / batch_time_m.val,
                         rate_avg=input.size(0) * args.world_size / batch_time_m.avg,
                         lr=lr,
-                        data_time=data_time_m,
-                        top1=top1_m, top5=top5_m))
+                        data_time=data_time_m))
 
                 if args.save_images and output_dir:
                     torchvision.utils.save_image(

@@ -575,7 +575,7 @@ def checkpoint_filter_fn(state_dict, model):
 
 @register_model
 def disvit_smalltest(pretrained=False, **kwargs):
-    model = VisionTransformer(patch_size=4, embed_dim=384, depth=4, num_heads=6,disentangled=True,**kwargs)
+    model = VisionTransformer(patch_size=16, embed_dim=384, depth=4, num_heads=6,disentangled=True,**kwargs)
     model.default_cfg = default_cfgs['disvit_smalltest']
     if pretrained:
         load_pretrained(
