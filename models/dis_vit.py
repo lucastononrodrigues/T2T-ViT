@@ -461,7 +461,7 @@ class VisionTransformerWOPE(nn.Module):
         self.max_relative_positions=embed_dim
         self.pos_ebd_size=self.max_relative_positions*2
         #self.rel_embeddings = nn.Embedding(self.pos_ebd_size, embed_dim)
-        self.rel_embeddings=nn.Parameter(self.pos_ebd_size,embed_dim)
+        self.rel_embeddings=nn.Parameter(torch.zeros(self.pos_ebd_size,embed_dim))
         
         print(f'Disentangled attention: {disentangled}')
         self.num_classes = num_classes
