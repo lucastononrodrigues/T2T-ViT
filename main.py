@@ -35,6 +35,8 @@ from timm.utils import ApexScaler, NativeScaler
 
 import wandb
 
+from warnings import filterwarnings
+filterwarnings("ignore")
 
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
@@ -561,9 +563,10 @@ def main():
             checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing)
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
-    run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
-    wandb.config.update(args)
-    wandb.watch(model)
+    if args.local_rank == 0:
+        run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
+        wandb.config.update(args)
+        wandb.watch(model)
     try:  # train the model
         for epoch in range(start_epoch, num_epochs):
             if args.distributed:
@@ -581,8 +584,8 @@ def main():
 
             eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             
-            
-            run.log({'train_loss':train_metrics['loss'],
+            if args.local_rank == 0:
+               run.log({'train_loss':train_metrics['loss'],
                      'eval_loss': eval_metrics['loss'],
                      'acc@1': eval_metrics['top1'],
                      'acc@5': eval_metrics['top5'],
