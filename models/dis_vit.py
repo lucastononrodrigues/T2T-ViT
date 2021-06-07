@@ -583,7 +583,7 @@ class VisionTransformerWOPE(nn.Module):
         return x
     
     def get_rel_embedding(self):
-        rel_embeddings = self.rel_embeddings.weight if self.relative_attention else None
+        rel_embeddings = self.rel_embeddings if self.relative_attention else None
         if rel_embeddings is not None:
           rel_embeddings = self.LayerNorm(rel_embeddings)
         return rel_embeddings        
