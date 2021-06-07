@@ -68,7 +68,7 @@ class PatchEmbed(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.,
                  relative_attention=True,pos_att_type='c2p|p2c',position_buckets=-1,max_relative_positions=-1,
-                 max_position_embeddings=512):
+                 max_position_embeddings=512,share_att_key=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -90,14 +90,16 @@ class Attention(nn.Module):
         self.max_relative_positions=dim
         self.pos_ebd_size=self.max_relative_positions
         
-        self.share_att_key=False
+        self.share_att_key=share_att_key
         self.relative_attention=relative_attention
 
         self.pos_att_type = [x.strip() for x in pos_att_type.lower().split('|')] # c2p|p2c
         if 'c2p' in self.pos_att_type or 'p2p' in self.pos_att_type:
-            self.pos_key_proj = nn.Linear(dim, self._all_head_size, bias=True)
+            if not self.share_att_key:
+                self.pos_key_proj = nn.Linear(dim, self._all_head_size, bias=True)
         if 'p2c' in self.pos_att_type or 'p2p' in self.pos_att_type:
-            self.pos_query_proj = nn.Linear(dim, self._all_head_size)
+            if not self.share_att_key:
+                self.pos_query_proj = nn.Linear(dim, self._all_head_size)
 
 
     
@@ -229,7 +231,7 @@ class Attention(nn.Module):
 
 class Block(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, LAI=False,disentangled=True):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, LAI=False,disentangled=True,share_att_key=False):
         super().__init__()
         self.LAI=LAI
         self.disentangled=disentangled
@@ -237,7 +239,7 @@ class Block(nn.Module):
         self.norm1 = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
-            relative_attention=disentangled)
+            relative_attention=disentangled,share_att_key=share_att_key)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -261,7 +263,7 @@ class VisionTransformer(nn.Module):
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
                  act_layer=None, weight_init='',
-                 LAI=False,disentangled=True):
+                 LAI=False,disentangled=True,share_att_key=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -312,7 +314,7 @@ class VisionTransformer(nn.Module):
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,
-                disentangled=self.disentangled)
+                disentangled=self.disentangled,share_att_key=share_att_key)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
 
@@ -736,8 +738,16 @@ def checkpoint_filter_fn(state_dict, model):
 
 
 
-
 @register_model
+def disvit_wopesak_smalltest(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=384, depth=4, num_heads=6,disentangled=True,share_att_key=True,**kwargs)
+    model.default_cfg = default_cfgs['disvit_wope_smalltest']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+
 @register_model
 def disvit_wope_smalltest(pretrained=False, **kwargs):
     model = VisionTransformerWOPE(patch_size=16, embed_dim=384, depth=4, num_heads=6,disentangled=True,**kwargs)
@@ -746,6 +756,15 @@ def disvit_wope_smalltest(pretrained=False, **kwargs):
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
     return model
+@register_model
+def disvit_sak_smalltest(pretrained=False, **kwargs):
+    model = VisionTransformer(patch_size=16, embed_dim=384, depth=4, num_heads=6,disentangled=True,share_att_key=True,**kwargs)
+    model.default_cfg = default_cfgs['disvit_smalltest']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+    
 
 @register_model
 def disvit_smalltest(pretrained=False, **kwargs):
