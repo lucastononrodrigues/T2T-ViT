@@ -38,7 +38,7 @@ default_cfgs = {
     # patch models (my experiments)
     'vit_smalltest': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     'vit_small_patch16_224': _cfg(
-        url='https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-weights/vit_small_p16_224-15ec54c9.pth',
+        url='https://github.com/rwightman/pytorch-image-models/nn.eleases/download/v0.1-weights/vit_small_p16_224-15ec54c9.pth',
     ),
 
     # patch models (weights ported from official Google JAX impl)

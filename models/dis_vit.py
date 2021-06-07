@@ -290,8 +290,8 @@ class VisionTransformer(nn.Module):
         self.position_buckets=-1
         self.max_relative_positions=embed_dim
         self.pos_ebd_size=self.max_relative_positions*2
-        self.rel_embeddings = nn.Embedding(self.pos_ebd_size, embed_dim)
-        
+        #self.rel_embeddings = nn.Embedding(self.pos_ebd_size, embed_dim)
+        self.rel_embeddings = nn.Parameter(torch.zeros(self.pos_ebd_size,embed_dim))
         print(f'Disentangled attention: {disentangled}')
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -338,6 +338,7 @@ class VisionTransformer(nn.Module):
         assert weight_init in ('jax', 'jax_nlhb', 'nlhb', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in weight_init else 0.
         trunc_normal_(self.pos_embed, std=.02)
+        trunc_normal_(self.rel_embeddings,std=0.02)
         if self.dist_token is not None:
             trunc_normal_(self.dist_token, std=.02)
         if weight_init.startswith('jax'):
@@ -354,7 +355,7 @@ class VisionTransformer(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay(self):
-        return {'pos_embed', 'cls_token', 'dist_token'}
+        return {'rel_embeddings','pos_embed', 'cls_token', 'dist_token'}
 
     def get_classifier(self):
         if self.dist_token is None:
@@ -412,7 +413,8 @@ class VisionTransformer(nn.Module):
         return x
     
     def get_rel_embedding(self):
-        rel_embeddings = self.rel_embeddings.weight if self.relative_attention else None
+        rel_embeddings = self.rel_embeddings if self.relative_attention else None
+        #rel_embeddings = self.rel_embeddings.weight if self.relative_attention else None
         if rel_embeddings is not None:
           rel_embeddings = self.LayerNorm(rel_embeddings)
         return rel_embeddings        
@@ -458,7 +460,8 @@ class VisionTransformerWOPE(nn.Module):
         self.position_buckets=-1
         self.max_relative_positions=embed_dim
         self.pos_ebd_size=self.max_relative_positions*2
-        self.rel_embeddings = nn.Embedding(self.pos_ebd_size, embed_dim)
+        #self.rel_embeddings = nn.Embedding(self.pos_ebd_size, embed_dim)
+        self.rel_embeddings=nn.Parameter(self.pos_ebd_size,embed_dim)
         
         print(f'Disentangled attention: {disentangled}')
         self.num_classes = num_classes
@@ -505,7 +508,7 @@ class VisionTransformerWOPE(nn.Module):
         # Weight init
         assert weight_init in ('jax', 'jax_nlhb', 'nlhb', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in weight_init else 0.
-        #trunc_normal_(self.pos_embed, std=.02)
+        trunc_normal_(self.rel_embeddings, std=.02)
         if self.dist_token is not None:
             trunc_normal_(self.dist_token, std=.02)
         if weight_init.startswith('jax'):
