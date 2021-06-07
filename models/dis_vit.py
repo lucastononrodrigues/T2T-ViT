@@ -431,7 +431,7 @@ class VisionTransformerWOPE(nn.Module):
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
                  act_layer=None, weight_init='',
-                 LAI=False,disentangled=True):
+                 LAI=False,disentangled=True,share_att_key=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -482,7 +482,7 @@ class VisionTransformerWOPE(nn.Module):
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,
-                disentangled=self.disentangled)
+                disentangled=self.disentangled,share_att_key=share_att_key)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
 
