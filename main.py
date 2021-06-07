@@ -35,8 +35,7 @@ from timm.utils import ApexScaler, NativeScaler
 
 import wandb
 
-from warnings import filterwarnings
-filterwarnings("ignore")
+
 
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
@@ -247,6 +246,7 @@ parser.add_argument('--use-multi-epochs-loader', action='store_true', default=Fa
 parser.add_argument('--wandb_project', default = 'Deformable ViT' ,type=str)
 parser.add_argument('--wandb_entity', default = 'ltononro' ,type=str)
 parser.add_argument('--wandb_group',default = 'DisViT', type=str)
+parser.add_argument('--warnings', action='store_true',default=False)
 
 try:
     from apex import amp
@@ -284,7 +284,10 @@ def _parse_args():
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
-
+    if not args.warnings:
+        from warnings import filterwarnings
+        filterwarnings("ignore")
+        
     args.prefetcher = not args.no_prefetcher
     args.distributed = False
     if 'WORLD_SIZE' in os.environ:
@@ -788,5 +791,5 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
     return metrics
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':       
     main()
