@@ -568,6 +568,7 @@ def main():
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
     if args.local_rank == 0 and args.wandb:
+        import wandb
         run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
         wandb.config.update(args)
         wandb.watch(model)
