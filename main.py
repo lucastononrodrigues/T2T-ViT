@@ -285,7 +285,7 @@ def _parse_args():
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
-    if not args.warnings:
+    if args.warnings:
         from warnings import filterwarnings
         filterwarnings("ignore")
         
