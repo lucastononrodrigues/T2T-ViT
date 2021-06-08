@@ -130,6 +130,7 @@ class Attention(nn.Module):
         if self.relative_attention:
             rel_embeddings=self.pos_drop(rel_embeddings)
             #print(q.shape,k.shape,relative_pos.shape,rel_embeddings.shape)
+            print(relative_pos.shape)
             rel_att = self.disentangled_attention_bias(q, k, relative_pos, rel_embeddings, scale_factor)
         
         if rel_att is not None:

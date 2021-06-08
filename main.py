@@ -33,7 +33,7 @@ from timm.optim import create_optimizer
 from timm.scheduler import create_scheduler
 from timm.utils import ApexScaler, NativeScaler
 
-import wandb
+
 
 
 
@@ -243,9 +243,10 @@ parser.add_argument('--use-multi-epochs-loader', action='store_true', default=Fa
 
 
 '''Logging/wandb'''
+parser.add_argument('--wandb',action='store_true',default=False)
 parser.add_argument('--wandb_project', default = 'Deformable ViT' ,type=str)
 parser.add_argument('--wandb_entity', default = 'ltononro' ,type=str)
-parser.add_argument('--wandb_group',default = 'DisViT', type=str)
+parser.add_argument('--wandb_group',default = 'DisViT_imagenet', type=str)
 parser.add_argument('--warnings', action='store_true',default=False)
 
 try:
@@ -566,7 +567,7 @@ def main():
             checkpoint_dir=output_dir, recovery_dir=output_dir, decreasing=decreasing)
         with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
             f.write(args_text)
-    if args.local_rank == 0:
+    if args.local_rank == 0 and args.wandb:
         run = wandb.init(project=args.wandb_project,entity=args.wandb_entity,group=args.wandb_group)
         wandb.config.update(args)
         wandb.watch(model)
@@ -587,7 +588,7 @@ def main():
 
             eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
             
-            if args.local_rank == 0:
+            if args.local_rank == 0 and args.wandb:
                run.log({'train_loss':train_metrics['loss'],
                      'eval_loss': eval_metrics['loss'],
                      'acc@1': eval_metrics['top1'],
