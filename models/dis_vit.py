@@ -37,6 +37,13 @@ default_cfgs = {
     'disvit_smalltest': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     'disvit_wope_smalltest': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     'disvit_wopesak_base_patch16_224': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_wopesak_d14': _cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_7':_cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_10':_cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_12':_cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_14':_cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_19':_cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    'disvit_24':_cfg(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
 }
 
 
@@ -799,4 +806,71 @@ def disvit_wopesak_base_patch16_224(pretrained=False, **kwargs):
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
     return model
     
-    
+@register_model
+def disvit_wopesak_d14(pretrained=False,**kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=384, depth=14, num_heads=6,disentangled=True,**kwargs)
+    model.default_cfg = default_cfgs['disvit_wopesak_d14']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+
+#Experiments based on T2T-ViT
+
+@register_model
+def disvit_7(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=256, depth=7, num_heads=4, mlp_ratio=2., **kwargs)
+    model.default_cfg = default_cfgs['disvit_7']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def disvit_10(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=256, depth=10, num_heads=4, mlp_ratio=2., **kwargs)
+    model.default_cfg = default_cfgs['disvit_10']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def disvit_12(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=256, depth=12, num_heads=4, mlp_ratio=2., **kwargs)
+    model.default_cfg = default_cfgs['disvit_12']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+
+@register_model
+def disvit_14(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=384, depth=14, num_heads=6, mlp_ratio=3., **kwargs)
+    model.default_cfg = default_cfgs['disvit_14']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def disvit_19(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=448, depth=19, num_heads=7, mlp_ratio=3., **kwargs)
+    model.default_cfg = default_cfgs['disvit_19']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def disvit_24(pretrained=False, **kwargs):
+    model = VisionTransformerWOPE(patch_size=16, embed_dim=512, depth=24, num_heads=8, mlp_ratio=3., **kwargs)
+    model.default_cfg = default_cfgs['disvit_24']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+
