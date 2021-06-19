@@ -405,7 +405,7 @@ class AttentionPerf(nn.Module):
                 self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
                 self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
 
-    def prm_exp2(self,x,is_query=False):
+    def kernel_sm(self,x,is_query=False):
         d=x.shape[-1]
         if self.spe is not None:
             normal=1
@@ -446,10 +446,11 @@ class AttentionPerf(nn.Module):
             q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
             q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
             k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
-        kp, qp = self.prm_exp2(k), self.prm_exp2(q,is_query=True)  # B x h x N x m
+        kp, qp = self.kernel_sm(k), self.kernel_sm(q,is_query=True)  # B x h x N x m
           
         #print(kp.shape,qp.shape)
-        D = torch.einsum('bhti,bhi->bht', qp, kp.sum(dim=2)).unsqueeze(dim=3)  # 
+        k_cumsum= k.sum(dim=-2).type_as(qp) #
+        D = torch.einsum('bhti,bhi->bht', qp, k_cumsum).unsqueeze(dim=3)  # 
         #print(D.shape)
         kptv = torch.einsum('bhin,bhim->bhnm', v.float(), kp)  # 'bhnd,bhnm->bhdm'
         #print(qp.shape,kptv.shape)
@@ -459,8 +460,8 @@ class AttentionPerf(nn.Module):
         # skip connection
         y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
         v = v.permute(0,2,1,3).flatten(-2)
-        y = v + self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
-        
+        #y = v + self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
+        y = self.dp(self.proj(y))
         #print(y.shape)
         return y
     
