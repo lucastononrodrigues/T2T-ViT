@@ -80,7 +80,7 @@ class Block(nn.Module):
         self.norm1 = norm_layer(dim)
         #self.attn = Attention(
         #    dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
-        self.attn= AttentionPerformer(dim, dim//num_heads, head_cnt=num_heads, kernel_ratio=0.5, dp1=drop)
+        self.attn= AttentionPerf(dim, dim//num_heads, head_cnt=num_heads, kernel_ratio=0.5, dp1=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -411,23 +411,30 @@ class AttentionPerf(nn.Module):
             normal=1
         else:    
             normal=1.0/(d**0.25)
+        x=x*normal
         
         ratio = 1 /(self.m ** 0.25)
         dash = torch.einsum("bhnc,mc->bhnm",x,self.w)
+        
         diag=torch.square(x)
-        diag=x.sum(dim=-1,keepdim=False)
+        diag=diag.sum(dim=-1,keepdim=False)
+        
         diag=diag/2.0
-        diag=diag*(normal**2)
+   
         diag=diag.unsqueeze(-1)
         if is_query:
-            dash = torch.exp(dash - diag - torch.max(dash,dim=-1, keepdims=True)[0]) + self.epsilon
-            dash= ratio * dash
+            dash = ratio * (
+            torch.exp(dash - diag -
+                    torch.max(dash, dim=-1, keepdim=True).values) + self.epsilon)
         else:
+            data_dash = ratio * (
+            torch.exp(dash - diag - torch.max(dash)) + self.epsilon)
             dash = torch.exp(dash - diag - torch.max(dash)) +  self.epsilon
-            dash= ratio * dash
-        return dash #b h n m
+
+        return dash.type_as(x) #b h n m
     def attn(self, x):
         B, N, C = x.shape
+        device = x.device
         qkv = self.qkv(x).reshape(B, N, 3, self.head_cnt, C // self.head_cnt).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
         #B x h x N x C//h
