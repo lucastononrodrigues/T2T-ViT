@@ -392,7 +392,7 @@ class AttentionPerformer(nn.Module):
         self.head_cnt = head_cnt
         self.head_dim=in_dim
         self.norm1 = nn.LayerNorm(dim)
-        self.norm2 = nn.LayerNorm(self.emb)
+        #self.norm2 = nn.LayerNorm(self.emb)
         self.epsilon = 1e-8  # for stable in division
 
         self.m = int(self.emb * kernel_ratio)
