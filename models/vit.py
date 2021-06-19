@@ -470,7 +470,7 @@ def vit_smalltest(pretrained=False,**kwargs):
     return model
 
 @register_model
-def vip_smalltest_cifar100(pretrained=False,**kwargs):
+def vit_smalltest_cifar100(pretrained=False,**kwargs):
     model = VisionTransformer(patch_size=4, embed_dim=384, depth=4, num_heads=6,**kwargs)
     model.default_cfg = default_cfgs['vit_smalltest']
     if pretrained:
