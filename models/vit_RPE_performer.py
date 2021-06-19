@@ -383,7 +383,7 @@ def lecun_normal_(tensor):
 
 
 class AttentionPerformer(nn.Module):
-    def __init__(self, dim, in_dim, head_cnt=1, kernel_ratio=0.5, dp1=0.1):
+    def __init__(self, dim, in_dim, head_cnt=1, kernel_ratio=0.5, dp1=0.1,spe=None):
         super().__init__()
         self.emb = in_dim * head_cnt # we use 1, so it is no need here
         self.qkv = nn.Linear(dim, 3 * self.emb)
@@ -399,10 +399,13 @@ class AttentionPerformer(nn.Module):
         self.w = torch.randn(self.m, self.head_dim)
         self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
         
+        self.spe=spe
         self.num_realizations=64
-        self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
-        self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
-        
+        if spe is not None:
+            if spe =='SineSPE':
+                self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
+                self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
+
     def prm_exp(self,x):
         xd = ((x * x).sum(dim=-1, keepdim=True)).repeat(1, 1,1, self.m) / 2
         wtx = torch.einsum('bhti,mi->bhtm', x.float(), self.w)
@@ -410,8 +413,11 @@ class AttentionPerformer(nn.Module):
     
     def prm_exp2(self,x,is_query=False):
         d=x.shape[-1]
-        #normal=1.0/(d**0.25)
-        normal=1
+        if self.spe is not None:
+            normal=1
+        else:    
+            normal=1.0/(d**0.25)
+        
         ratio = 1 /(self.m ** 0.25)
         dash = torch.einsum("bhnc,mc->bhnm",x,self.w)
         diag=torch.square(x)
@@ -431,13 +437,14 @@ class AttentionPerformer(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.head_cnt, C // self.head_cnt).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
         #B x h x N x C//h
-        q=q.permute(0,2,1,3) #Fix this!! We will need to change either the spe algorithm or the performer one
-        k=k.permute(0,2,1,3)
+        if self.spe is not None:
+            q=q.permute(0,2,1,3) #Fix this!! We will need to change either the spe algorithm or the performer one
+            k=k.permute(0,2,1,3)
         #v=v.permute(0,2,1,3)
         #Filter is adapted for B N h d, so we need to twist it a little bit before sending inside the function
-        q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
-        q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
-        k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
+            q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
+            q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
+            k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
         kp, qp = self.prm_exp2(k), self.prm_exp2(q,is_query=True)  # B x h x N x m
           
         #print(kp.shape,qp.shape)
