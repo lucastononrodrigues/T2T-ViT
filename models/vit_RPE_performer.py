@@ -7,14 +7,16 @@ from functools import partial
 from collections import OrderedDict
 from copy import deepcopy
 
+from functools import partial
 import numpy as np
 from itertools import repeat
-from torch._six import container_abcs
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.init import _calculate_fan_in_and_fan_out
+from torch._six import container_abcs
+
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import build_model_with_cfg, load_pretrained
@@ -399,8 +401,14 @@ class AttentionPerf(nn.Module):
         self.epsilon = 1e-8  # for stable in division
 
         self.m = int(self.head_dim * kernel_ratio)
-        self.w = torch.randn(self.m, self.head_dim)
-        self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
+        #self.w = torch.randn(self.m, self.head_dim)
+        #self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
+        
+        self.create_projection = partial(prf_torch.gaussian_orthogonal_random_matrix, nb_rows = self.m, nb_columns = self.head_dim)
+        self.w = self.create_projection()
+        
+        
+        self.kernel='relu'
         
         self.spe=spe
         self.num_realizations=64
@@ -424,7 +432,10 @@ class AttentionPerf(nn.Module):
             k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
         
         #print('q,k shapes',q.shape,k.shape)    
-        qp,kp= prf_torch.softmax_kernel(q,projection_matrix=self.w,is_query=True,device=device),prf_torch.softmax_kernel(k,projection_matrix=self.w,is_query=False,device=device)
+        if self.kernel=='sm':
+            qp,kp= prf_torch.softmax_kernel(q,projection_matrix=self.w,is_query=True,device=device),prf_torch.softmax_kernel(k,projection_matrix=self.w,is_query=False,device=device)
+        elif self.kernel=='relu':
+            qp,kp= prf_torch.generalized_kernel(q,projection_matrix=self.w,device=device),prf_torch.generalized_kernel(k,projection_matrix=self.w,device=device)
         #print('qp kp shapes',qp.shape,kp.shape)
         y = prf_torch.linear_attention(qp,kp,v)
         #print('linear attention shape y ', y.shape)
