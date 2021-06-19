@@ -449,17 +449,19 @@ class AttentionPerf(nn.Module):
         kp, qp = self.kernel_sm(k), self.kernel_sm(q,is_query=True)  # B x h x N x m
           
         #print(kp.shape,qp.shape)
-        k_cumsum= k.sum(dim=-2).type_as(qp) #
-        D = torch.einsum('bhti,bhi->bht', qp, k_cumsum).unsqueeze(dim=3)  # 
+        all_ones=torch.ones([kp.shape[2]],device=device)
+        kp_sum= torch.einsum('bhlm,l->bhm',kp,all_ones)
+        D=torch.einsum('bhlm,bhm->bhl',qp,kp_sum).unsqueeze(-1)
         #print(D.shape)
         kptv = torch.einsum('bhin,bhim->bhnm', v.float(), kp)  # 'bhnd,bhnm->bhdm'
         #print(qp.shape,kptv.shape)
         y = torch.einsum('bhnm,bhdm->bhnd', qp, kptv) # bhnm,bhdm->bhnd
-        y= y / (D.repeat(1, 1, 1, self.head_dim) + self.epsilon) # bhnd / bhnd
+        y= y / (D+ self.epsilon)
+        #y= y / (D.repeat(1, 1, 1, self.head_dim) + self.epsilon) # bhnd / bhnd
         #print(y.shape)
         # skip connection
-        y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
-        v = v.permute(0,2,1,3).flatten(-2)
+        #y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
+        #v = v.permute(0,2,1,3).flatten(-2)
         #y = v + self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
         y = self.dp(self.proj(y))
         #print(y.shape)
