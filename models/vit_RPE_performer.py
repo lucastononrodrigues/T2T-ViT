@@ -519,7 +519,7 @@ def vip_smalltest(pretrained=False,**kwargs):
 
 @register_model
 def vip_smalltest_cifar100(pretrained=False,**kwargs):
-    model = VisionTransformer(patch_size=4, embed_dim=384, depth=4, num_heads=6,num_classes=100,img_size=32,**kwargs)
+    model = VisionTransformer(patch_size=4, embed_dim=384, depth=4, num_heads=6,**kwargs)
     model.default_cfg = default_cfgs['vip_smalltest']
     if pretrained:
         load_pretrained(
