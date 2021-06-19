@@ -20,7 +20,7 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import build_model_with_cfg, load_pretrained
 from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
-import SPE
+from SPE import *
 
 
 _logger = logging.getLogger(__name__)
@@ -400,8 +400,8 @@ class AttentionPerformer(nn.Module):
         self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
         
         self.num_realizations=64
-        self.spe = SPE.SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
-        self.filter = SPE.SPEFilter(gated=True,code_shape=self.spe.code_shape)
+        self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
+        self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
         
     def prm_exp(self,x):
         xd = ((x * x).sum(dim=-1, keepdim=True)).repeat(1, 1,1, self.m) / 2

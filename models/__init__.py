@@ -10,4 +10,3 @@ from .t2t_vit_ghost import *
 from .dis_vit import *
 from .vit import *
 from .vit_RPE_performer import *
-from .SPE import *
