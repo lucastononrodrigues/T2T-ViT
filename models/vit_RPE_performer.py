@@ -398,7 +398,7 @@ class AttentionPerf(nn.Module):
         #self.norm2 = nn.LayerNorm(self.emb)
         self.epsilon = 1e-8  # for stable in division
 
-        self.m = int(self.emb * kernel_ratio)
+        self.m = int(self.head_dim * kernel_ratio)
         self.w = torch.randn(self.m, self.head_dim)
         self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
         
