@@ -439,6 +439,7 @@ class AttentionPerf(nn.Module):
             qp,kp= prf_torch.generalized_kernel(q,projection_matrix=self.w.to(device),device=device),prf_torch.generalized_kernel(k,projection_matrix=self.w.to(device),device=device)
         #print('qp kp shapes',qp.shape,kp.shape)
         y = prf_torch.linear_attention(qp,kp,v)
+        y = mod_linear_attention(qp,kp,v,self.epsilon)
         #print('linear attention shape y ', y.shape)
         # skip connection
         if self.spe:
@@ -462,6 +463,12 @@ class AttentionPerf(nn.Module):
         return x
 
 
+def mod_linear_attention(q, k, v,epsilon):
+    k_cumsum = k.sum(dim = -2)
+    D_inv = 1. / torch.einsum('...nd,...d->...n', q, k_cumsum.type_as(q))
+    context = torch.einsum('...nd,...ne->...de', k, v)
+    out = torch.einsum('...de,...nd,...n->...ne', context, q, D_inv+epsilon)
+    return out
 
 class AttentionPerformer(nn.Module):
     def __init__(self, dim, in_dim, head_cnt=1, kernel_ratio=0.5, dp1=0.1,spe=None):
