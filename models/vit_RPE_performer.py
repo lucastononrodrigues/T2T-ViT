@@ -20,7 +20,7 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import build_model_with_cfg, load_pretrained
 from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
-from SPE import *
+from .SPE import *
 
 
 _logger = logging.getLogger(__name__)
