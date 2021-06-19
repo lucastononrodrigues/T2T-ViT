@@ -670,9 +670,9 @@ def train_epoch(
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad)
             optimizer.step()
 
-        #for name, param in model.named_parameters():
-        #        if param.grad is None:
-        #            print(name)
+        for name, param in model.named_parameters():
+                if param.grad is None:
+                    print(name)
             
         torch.cuda.synchronize()
         if model_ema is not None:
