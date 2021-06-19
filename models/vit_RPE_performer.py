@@ -25,6 +25,8 @@ try:
 except:
     from SPE import *
 
+import performer_pytorch.performer_pytorch as prf_torch
+
 _logger = logging.getLogger(__name__)
 
 
@@ -407,33 +409,6 @@ class AttentionPerf(nn.Module):
                 self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
                 self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
 
-    def kernel_sm(self,x,is_query=False):
-        d=x.shape[-1]
-        if self.spe is not None:
-            normal=1
-        else:    
-            normal=1.0/(d**0.25)
-        x=x*normal
-        
-        ratio = 1 /(self.m ** 0.25)
-        dash = torch.einsum("bhnc,mc->bhnm",x,self.w)
-        
-        diag=torch.square(x)
-        diag=diag.sum(dim=-1,keepdim=False)
-        
-        diag=diag/2.0
-   
-        diag=diag.unsqueeze(-1)
-        if is_query:
-            dash = ratio * (
-            torch.exp(dash - diag -
-                    torch.max(dash, dim=-1, keepdim=True).values) + self.epsilon)
-        else:
-            data_dash = ratio * (
-            torch.exp(dash - diag - torch.max(dash)) + self.epsilon)
-            dash = torch.exp(dash - diag - torch.max(dash)) +  self.epsilon
-
-        return dash.type_as(x) #b h n m
     def attn(self, x):
         B, N, C = x.shape
         device = x.device
@@ -443,28 +418,16 @@ class AttentionPerf(nn.Module):
         if self.spe is not None:
             q=q.permute(0,2,1,3) #Fix this!! We will need to change either the spe algorithm or the performer one
             k=k.permute(0,2,1,3)
-        #v=v.permute(0,2,1,3)
         #Filter is adapted for B N h d, so we need to twist it a little bit before sending inside the function
             q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
             q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
             k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
-            
-        kp, qp = self.kernel_sm(k), self.kernel_sm(q,is_query=True)  # B x h x N x m
-        #print("kp,qp shapes",kp.shape,qp.shape)  
-        #print(kp.shape,qp.shape)
-        all_ones=torch.ones([kp.shape[2]],device=device)
-        #print("all_ones_shape",all_ones.shape)
-        kp_sum= torch.einsum('bhlm,l->bhm',kp,all_ones)
-        #print('kp_sum shape',kp_sum.shape)
-        D=torch.einsum('bhlm,bhm->bhl',qp,kp_sum).unsqueeze(-1)
-        #print('Dshape',D.shape)
-        #print(D.shape)
-        kptv = torch.einsum('bhin,bhim->bhnm', v.float(), kp)  # 'bhnd,bhnm->bhdm'
-        #print(qp.shape,kptv.shape)
-        y = torch.einsum('bhnm,bhdm->bhnd', qp, kptv) # bhnm,bhdm->bhnd
-        #y= y / (D+ self.epsilon)
-        y= y / (D.repeat(1, 1, 1, self.head_dim) + self.epsilon) # bhnd / bhnd
-        #print(y.shape)
+        
+        #print('q,k shapes',q.shape,k.shape)    
+        qp,kp= prf_torch.softmax_kernel(q,projection_matrix=self.w,is_query=True,device=device),prf_torch.softmax_kernel(k,projection_matrix=self.w,is_query=False,device=device)
+        #print('qp kp shapes',qp.shape,kp.shape)
+        y = prf_torch.linear_attention(qp,kp,v)
+        #print('linear attention shape y ', y.shape)
         # skip connection
         if self.spe:
             #print('y shape',y.shape)
