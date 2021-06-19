@@ -433,7 +433,7 @@ class AttentionPerf(nn.Module):
         
         #print('q,k shapes',q.shape,k.shape)    
         if self.kernel=='sm':
-            qp,kp= prf_torch.softmax_kernel(q,projection_matrix=self.w,is_query=True,device=device),prf_torch.softmax_kernel(k,projection_matrix=self.w,is_query=False,device=device)
+            qp,kp= prf_torch.softmax_kernel(q,projection_matrix=self.w.to(device),is_query=True,device=device),prf_torch.softmax_kernel(k,projection_matrix=self.w,is_query=False,device=device)
         elif self.kernel=='relu':
             #print(q.device,device)
             qp,kp= prf_torch.generalized_kernel(q,projection_matrix=self.w.to(device),device=device),prf_torch.generalized_kernel(k,projection_matrix=self.w.to(device),device=device)
