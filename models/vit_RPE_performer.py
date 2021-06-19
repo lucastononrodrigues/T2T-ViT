@@ -20,8 +20,10 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import build_model_with_cfg, load_pretrained
 from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
-from .SPE import *
-
+try:
+    from .SPE import *
+except:
+    from SPE import *
 
 _logger = logging.getLogger(__name__)
 
@@ -446,26 +448,35 @@ class AttentionPerf(nn.Module):
             q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
             q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
             k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
+            
         kp, qp = self.kernel_sm(k), self.kernel_sm(q,is_query=True)  # B x h x N x m
-          
+        #print("kp,qp shapes",kp.shape,qp.shape)  
         #print(kp.shape,qp.shape)
         all_ones=torch.ones([kp.shape[2]],device=device)
+        #print("all_ones_shape",all_ones.shape)
         kp_sum= torch.einsum('bhlm,l->bhm',kp,all_ones)
+        #print('kp_sum shape',kp_sum.shape)
         D=torch.einsum('bhlm,bhm->bhl',qp,kp_sum).unsqueeze(-1)
+        #print('Dshape',D.shape)
         #print(D.shape)
         kptv = torch.einsum('bhin,bhim->bhnm', v.float(), kp)  # 'bhnd,bhnm->bhdm'
         #print(qp.shape,kptv.shape)
         y = torch.einsum('bhnm,bhdm->bhnd', qp, kptv) # bhnm,bhdm->bhnd
-        y= y / (D+ self.epsilon)
-        #y= y / (D.repeat(1, 1, 1, self.head_dim) + self.epsilon) # bhnd / bhnd
+        #y= y / (D+ self.epsilon)
+        y= y / (D.repeat(1, 1, 1, self.head_dim) + self.epsilon) # bhnd / bhnd
         #print(y.shape)
         # skip connection
-        #y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
-        #v = v.permute(0,2,1,3).flatten(-2)
-        #y = v + self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
-        y=y.flatten(-2)
-        y = self.dp(self.proj(y))
-        #print(y.shape)
+        if self.spe:
+            #print('y shape',y.shape)
+            y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
+            v = v.permute(0,2,1,3).flatten(-2)
+            #print('final y shape',y.shape)
+            y = v + self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
+        else:
+            y=y.permute(0,2,1,3).flatten(-2)
+            #print('final y shape',y.shape)
+            y = self.dp(self.proj(y))
+        
         return y
     
         
