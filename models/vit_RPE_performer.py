@@ -381,6 +381,90 @@ def lecun_normal_(tensor):
     variance_scaling_(tensor, mode='fan_in', distribution='truncated_normal')
 
 
+class AttentionPerf(nn.Module):
+    def __init__(self, dim, in_dim, head_cnt=1, kernel_ratio=0.5, dp1=0.1,spe=None):
+        super().__init__()
+        self.emb = in_dim * head_cnt # we use 1, so it is no need here
+        self.qkv = nn.Linear(dim, 3 * self.emb)
+        self.dp = nn.Dropout(dp1)
+        self.proj = nn.Linear(self.emb, self.emb)
+        self.head_cnt = head_cnt
+        self.head_dim=in_dim
+        self.norm1 = nn.LayerNorm(dim)
+        #self.norm2 = nn.LayerNorm(self.emb)
+        self.epsilon = 1e-8  # for stable in division
+
+        self.m = int(self.emb * kernel_ratio)
+        self.w = torch.randn(self.m, self.head_dim)
+        self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
+        
+        self.spe=spe
+        self.num_realizations=64
+        if spe is not None:
+            if spe =='SineSPE':
+                self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
+                self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
+
+    def prm_exp2(self,x,is_query=False):
+        d=x.shape[-1]
+        if self.spe is not None:
+            normal=1
+        else:    
+            normal=1.0/(d**0.25)
+        
+        ratio = 1 /(self.m ** 0.25)
+        dash = torch.einsum("bhnc,mc->bhnm",x,self.w)
+        diag=torch.square(x)
+        diag=x.sum(dim=-1,keepdim=False)
+        diag=diag/2.0
+        diag=diag*(normal**2)
+        diag=diag.unsqueeze(-1)
+        if is_query:
+            dash = torch.exp(dash - diag - torch.max(dash,dim=-1, keepdims=True)[0]) + self.epsilon
+            dash= ratio * dash
+        else:
+            dash = torch.exp(dash - diag - torch.max(dash)) +  self.epsilon
+            dash= ratio * dash
+        return dash #b h n m
+    def attn(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.head_cnt, C // self.head_cnt).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+        #B x h x N x C//h
+        if self.spe is not None:
+            q=q.permute(0,2,1,3) #Fix this!! We will need to change either the spe algorithm or the performer one
+            k=k.permute(0,2,1,3)
+        #v=v.permute(0,2,1,3)
+        #Filter is adapted for B N h d, so we need to twist it a little bit before sending inside the function
+            q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
+            q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
+            k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
+        kp, qp = self.prm_exp2(k), self.prm_exp2(q,is_query=True)  # B x h x N x m
+          
+        #print(kp.shape,qp.shape)
+        D = torch.einsum('bhti,bhi->bht', qp, kp.sum(dim=2)).unsqueeze(dim=3)  # 
+        #print(D.shape)
+        kptv = torch.einsum('bhin,bhim->bhnm', v.float(), kp)  # 'bhnd,bhnm->bhdm'
+        #print(qp.shape,kptv.shape)
+        y = torch.einsum('bhnm,bhdm->bhnd', qp, kptv) # bhnm,bhdm->bhnd
+        y= y / (D.repeat(1, 1, 1, self.head_dim) + self.epsilon) # bhnd / bhnd
+        #print(y.shape)
+        # skip connection
+        y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
+        v = v.permute(0,2,1,3).flatten(-2)
+        y = v + self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
+        
+        #print(y.shape)
+        return y
+    
+        
+    def forward(self, x):
+        #print(x.shape)
+        x = self.attn(self.norm1(x))
+        #x = x + self.mlp(self.norm2(x)) Removing MLP + skip because already in Block
+        return x
+
+
 
 class AttentionPerformer(nn.Module):
     def __init__(self, dim, in_dim, head_cnt=1, kernel_ratio=0.5, dp1=0.1,spe=None):
