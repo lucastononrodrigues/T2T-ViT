@@ -449,7 +449,7 @@ class AttentionPerf(nn.Module):
             y = y.permute(0,2,1,3).flatten(-2) / math.sqrt(self.num_realizations)
             v = v.permute(0,2,1,3).flatten(-2)
             #print('final y shape',y.shape)
-            y = self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
+            y = v+self.dp(self.proj(y))  # same as token_transformer in T2T layer, use v as skip connection
         else:
             y=y.permute(0,2,1,3).flatten(-2)
             #print('final y shape',y.shape)
