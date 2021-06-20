@@ -168,7 +168,8 @@ class VisionTransformer(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
+        #Remove position embedding
+        #self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -198,7 +199,7 @@ class VisionTransformer(nn.Module):
         # Weight init
         assert weight_init in ('jax', 'jax_nlhb', 'nlhb', '')
         head_bias = -math.log(self.num_classes) if 'nlhb' in weight_init else 0.
-        trunc_normal_(self.pos_embed, std=.02)
+        #trunc_normal_(self.pos_embed, std=.02)
         if self.dist_token is not None:
             trunc_normal_(self.dist_token, std=.02)
         if weight_init.startswith('jax'):
@@ -236,7 +237,8 @@ class VisionTransformer(nn.Module):
             x = torch.cat((cls_token, x), dim=1)
         else:
             x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
-        x = self.pos_drop(x + self.pos_embed)
+        #x = self.pos_drop(x + self.pos_embed)
+        x = self.pos_drop
         x = self.blocks(x)
         x = self.norm(x)
         if self.dist_token is None:
