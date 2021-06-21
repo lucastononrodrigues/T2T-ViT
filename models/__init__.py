@@ -11,3 +11,4 @@ from .dis_vit import *
 from .vit import *
 from .vit_RPE_performer import *
 from .SPE import *
+from .dis_vit_spe import *
