@@ -417,7 +417,7 @@ class AttentionPerf(nn.Module):
         if spe is not None:
             if spe =='SineSPE':
                 self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
-                self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
+                self.filter = SPEFilter(gated=False,code_shape=self.spe.code_shape)
 
     def attn(self, x):
         B, N, C = x.shape
@@ -494,7 +494,7 @@ class AttentionPerformer(nn.Module):
         if spe is not None:
             if spe =='SineSPE':
                 self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=5, num_realizations=self.num_realizations)
-                self.filter = SPEFilter(gated=True,code_shape=self.spe.code_shape)
+                self.filter = SPEFilter(gated=False,code_shape=self.spe.code_shape)
 
     def prm_exp(self,x):
         xd = ((x * x).sum(dim=-1, keepdim=True)).repeat(1, 1,1, self.m) / 2
