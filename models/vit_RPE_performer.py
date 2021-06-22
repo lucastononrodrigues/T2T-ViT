@@ -424,6 +424,8 @@ class AttentionPerf(nn.Module):
         device = x.device
         qkv = self.qkv(x).reshape(B, N, 3, self.head_cnt, C // self.head_cnt).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+        
+        print('q,k shapes',q.shape,k.shape) 
         #B x h x N x C//h
         if self.spe is not None:
             q=q.permute(0,2,1,3) #Fix this!! We will need to change either the spe algorithm or the performer one
@@ -433,7 +435,7 @@ class AttentionPerf(nn.Module):
             q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
             k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
         
-        #print('q,k shapes',q.shape,k.shape)    
+        print('q_hat,k_hat shapes',q.shape,k.shape)    
         if self.kernel=='sm':
             qp,kp= prf_torch.softmax_kernel(q,projection_matrix=self.w.to(device),is_query=True,device=device),prf_torch.softmax_kernel(k,projection_matrix=self.w.to(device),is_query=False,device=device)
         elif self.kernel=='relu':
