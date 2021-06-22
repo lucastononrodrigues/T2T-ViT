@@ -411,10 +411,9 @@ class AttentionPerf(nn.Module):
         
         
         self.kernel='sm'
-        spe='SineSPE'
-        self.spe=spe
-        self.num_realizations=256
-        self.num_sines=10
+        self.spe='SineSPE'
+        self.num_realizations=64
+        self.num_sines=5
         if spe is not None:
             if spe =='SineSPE':
                 self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=self.num_sines, num_realizations=self.num_realizations)
