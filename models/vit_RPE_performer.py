@@ -413,7 +413,7 @@ class AttentionPerf(nn.Module):
         self.kernel='sm'
         self.spe_flag='SineSPE'
         self.num_realizations=64
-        self.num_sines=10
+        self.num_sines=5
         if self.spe_flag is not None:
             if self.spe_flag =='SineSPE':
                 self.spe = SineSPE(num_heads=head_cnt, in_features=in_dim, num_sines=self.num_sines, num_realizations=self.num_realizations)
@@ -430,8 +430,8 @@ class AttentionPerf(nn.Module):
         if self.spe is not None:
             q=q.permute(0,2,1,3) #Fix this!! We will need to change either the spe algorithm or the performer one
             k=k.permute(0,2,1,3)
-        #Filter is adapted for B N h d, so we need to twist it a little bit before sending inside the function
-            q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions
+        #Filter is adapted for B N h d, so we need to twist it a little bit before sending to the function
+            q,k = self.filter(q,k,self.spe(q.shape[:2])) #We want to select the Batch and Token dimensions in spe
             q=q.permute(0,2,1,3)/(self.num_realizations**0.25)
             k=k.permute(0,2,1,3)/(self.num_realizations**0.25)
         
